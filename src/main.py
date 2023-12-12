@@ -4,7 +4,7 @@ import winsound
 from pathlib import Path
 
 from numpy import nan
-from pandas import DataFrame, ExcelWriter, read_excel
+from pandas import DataFrame, ExcelFile, ExcelWriter, read_excel
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QDialog,
                              QFileDialog, QInputDialog, QMainWindow,
@@ -27,7 +27,26 @@ def resource_path(relative_path):
 
 '______________________________________________________________________________'
 
-# class welcome(QDialog):
+class InputSheetsDialog(QDialog):
+    def __init__(self):
+        super(InputSheetsDialog, self).__init__()
+        loadUi(resource_path("./qtui/1.InputDialog.ui"), self)
+        self.setWindowTitle("Select Excel sheets")
+
+        self.datasheet_dropdown_1.addItems(['None']+sheets)
+        self.decodesheet_dropdown_1.addItems(['None']+sheets)
+        self.datasheet_dropdown_1.setCurrentText(sheets[0])
+        self.decodesheet_dropdown_1.setCurrentText(sheets[-1])
+
+        self.buttonBox.accepted.connect(self.accept)
+        self.buttonBox.rejected.connect(self.reject)
+    
+    def getSheetNames(self):
+        return self.datasheet_dropdown_1.currentText(), self.decodesheet_dropdown_1.currentText()
+
+
+'______________________________________________________________________________'
+
 class welcome(QMainWindow):
     def __init__(self):
         super(welcome, self).__init__()
@@ -38,8 +57,7 @@ class welcome(QMainWindow):
         self.dataMemoryList = {0:(None,None)}
         self.currentState = 1
         self.undoredoState = self.currentState
-
-        # self.tableWidget.cellChanged.connect(self.changeLogged)
+        self.recordChanges = True
 
         self.load_btn_wlcm.clicked.connect(self.loadTable)
         self.clear_btn_wlcm.clicked.connect(self.clearTable)
@@ -51,6 +69,7 @@ class welcome(QMainWindow):
         self.export_btn_wlcm.clicked.connect(self.export2excel)
         self.undo_btn_wlcm.clicked.connect(self.undo)
         self.redo_btn_wlcm.clicked.connect(self.redo)
+        self.tableWidget.cellChanged.connect(self.changeLogged)
 
         self.clear_btn_wlcm.setEnabled(False)
         self.scan_btn_wlcm.setEnabled(False)
@@ -63,84 +82,72 @@ class welcome(QMainWindow):
         self.redo_btn_wlcm.setEnabled(False)
 
         self.label_tbl.setText('Press `Load Excel` button to load the Excel.')
+        
 
     def loadTable(self):
-
+        self.recordChanges = False
         global excelFile
         excelFile, _ = QFileDialog.getOpenFileName(
                 self, 'Single File', '.', '*.xls*')
 
         if excelFile != '':
             global colsNames, df_decode
-            df = read_excel(excelFile, sheet_name=0)
-            try: 
-                df_decode = read_excel(
-                    excelFile, sheet_name=1, index_col=0)
-            except: pass
-            colsNames = df.columns.to_list()
+            xls = ExcelFile(excelFile)
+            global sheets
+            sheets = xls.sheet_names
 
-            self.tableWidget.setColumnCount(len(colsNames))
-            self.tableWidget.setHorizontalHeaderLabels(colsNames)
+            inputsheetsPopup = InputSheetsDialog()
+            global dataSheet, decodeSheet
+            dataSheet, decodeSheet = ['None', 'None']
+            if inputsheetsPopup.exec_() == QDialog.Accepted:
+                dataSheet, decodeSheet = inputsheetsPopup.getSheetNames()
+            if dataSheet != 'None':
+                df = read_excel(xls, sheet_name=dataSheet)
+                try:
+                    df_decode = read_excel(
+                        xls, sheet_name=decodeSheet, index_col=0)
+                except: df_decode = None
+                colsNames = df.columns.to_list()
 
-            global qrcode_list 
-            qrcode_list = list(set(df['QR Code'].astype(str).to_list()))
-            
-            global row
-            row=0
-            for row in df.index:
-                rowPosition = self.tableWidget.rowCount()
-                if 'reload' not in locals():
-                    self.tableWidget.insertRow(rowPosition)
-                for col, data in enumerate(df.iloc[row]):
-                    output_Item = QTableWidgetItem(str(data))
-                    if col != 0:
-                        output_Item.setTextAlignment(QtCore.Qt.AlignCenter)
-                    self.tableWidget.setItem(row, col, output_Item)
-                row = row + 1
-            self.tableWidget.resizeColumnsToContents()
-            self.load_btn_wlcm.setEnabled(False)
-            self.clear_btn_wlcm.setEnabled(True)
-            self.scan_btn_wlcm.setEnabled(True)
-            self.delrow_btn_wlcm.setEnabled(True)
-            self.delcol_btn_wlcm.setEnabled(True)
-            self.addrow_btn_wlcm.setEnabled(True)
-            self.addcol_btn_wlcm.setEnabled(True)
-            self.export_btn_wlcm.setEnabled(True)
+                self.tableWidget.setColumnCount(len(colsNames))
+                self.tableWidget.setHorizontalHeaderLabels(colsNames)
 
-            self.undoredoState = self.currentState
-            if self.currentState > 2:
-                self.currentState = 2
-                self.dataMemoryList[0] = self.dataMemoryList[1]
-                self.dataMemoryList[1] = self.dataMemoryList[2]
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
+                global qrcode_list 
+                qrcode_list = list(set(df['QR Code'].astype(str).to_list()))
+                
+                global row
+                row=0
+                for row in df.index:
+                    rowPosition = self.tableWidget.rowCount()
+                    if 'reload' not in locals():
+                        self.tableWidget.insertRow(rowPosition)
+                    for col, data in enumerate(df.iloc[row]):
+                        output_Item = QTableWidgetItem(str(data))
+                        if col != 0:
+                            output_Item.setTextAlignment(QtCore.Qt.AlignCenter)
+                        self.tableWidget.setItem(row, col, output_Item)
+                    row = row + 1
+                self.tableWidget.resizeColumnsToContents()
+                self.load_btn_wlcm.setEnabled(False)
+                self.clear_btn_wlcm.setEnabled(True)
+                self.scan_btn_wlcm.setEnabled(True)
+                self.delrow_btn_wlcm.setEnabled(True)
+                self.delcol_btn_wlcm.setEnabled(True)
+                self.addrow_btn_wlcm.setEnabled(True)
+                self.addcol_btn_wlcm.setEnabled(True)
+                self.export_btn_wlcm.setEnabled(True)
+
+                self.trackChanges()
+
+                self.label_tbl.setText('Table: Loaded '+'✔')
             else:
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-                self.currentState = self.currentState + 1
-            
-            print(self.dataMemoryList,'\n')
-            if len(self.dataMemoryList) == 3:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState==1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=2:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
-            else:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
-
-            self.label_tbl.setText('Table: Loaded '+'✔')
+                self.label_tbl.setText('Table: Data sheet not selected or Selection Aborted [Please try again] '+'❌')
         else:
-            self.label_tbl.setText('Table: Loading Failed [Press `Load Excel` button to reload the Excel] '+'❌')
+            self.label_tbl.setText('Table: Loading Failed [Please try again] '+'❌')
+        self.recordChanges = True
     
     def clearTable(self):
+        self.recordChanges = False
         while self.tableWidget.rowCount() > 0:
             for i in range(self.tableWidget.rowCount()):
                 self.tableWidget.removeRow(i)
@@ -154,42 +161,26 @@ class welcome(QMainWindow):
         self.addcol_btn_wlcm.setEnabled(False)
         self.export_btn_wlcm.setEnabled(False)
         
-        self.undoredoState = self.currentState
-        if self.currentState > 2:
-            self.currentState = 2
-            self.dataMemoryList[0] = self.dataMemoryList[1]
-            self.dataMemoryList[1] = self.dataMemoryList[2]
-            self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-        else:
-            self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-            self.currentState = self.currentState + 1
-        
-        print(self.dataMemoryList,'\n')
-
-        if len(self.dataMemoryList) == 3:
-            if self.undoredoState<=0:
-                self.undo_btn_wlcm.setEnabled(False)
-                self.redo_btn_wlcm.setEnabled(True)
-            elif self.undoredoState==1:
-                self.undo_btn_wlcm.setEnabled(True)
-                self.redo_btn_wlcm.setEnabled(True)
-            elif self.undoredoState>=2:
-                self.undo_btn_wlcm.setEnabled(True)
-                self.redo_btn_wlcm.setEnabled(False)
-        else:
-            if self.undoredoState<=0:
-                self.undo_btn_wlcm.setEnabled(False)
-                self.redo_btn_wlcm.setEnabled(True)
-            elif self.undoredoState>=1:
-                self.undo_btn_wlcm.setEnabled(True)
-                self.redo_btn_wlcm.setEnabled(False)
+        self.trackChanges()
 
         self.label_tbl.setText('Press `Load Excel` button to reload the Excel.')
+        self.recordChanges = True
 
     def getQRCode(self):
+        self.recordChanges = False
         global row, qrcode_list
-        qrcode = scan_qr_code()
-        if qrcode is not None:        
+        qrcode = None
+        try:
+            qrcode = scan_qr_code()
+        except:
+            qrcode = None
+            warnMsg = QMessageBox()
+            warnMsg.setIcon(QMessageBox.Critical)
+            warnMsg.setText("No Camera Detected")
+            warnMsg.setWindowTitle("Critical Warning")
+            warnMsg.setStandardButtons(QMessageBox.Ok)
+            warnMsg.exec_()
+        if qrcode is not None:
             if qrcode in qrcode_list:
                 self.tableWidget.setCurrentItem(None)
                 matching_items = self.tableWidget.findItems(
@@ -212,44 +203,18 @@ class welcome(QMainWindow):
                 row = row + 1
                 self.label_tbl.setText(f'QR Code: {qrcode} scanned '+'✔')
                 
-                self.undoredoState = self.currentState
-                if self.currentState > 2:
-                    self.currentState = 2
-                    self.dataMemoryList[0] = self.dataMemoryList[1]
-                    self.dataMemoryList[1] = self.dataMemoryList[2]
-                    self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-                else:
-                    self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-                    self.currentState = self.currentState + 1
-                
-                print(self.dataMemoryList,'\n')
-
-                if len(self.dataMemoryList) == 3:
-                    if self.undoredoState<=0:
-                        self.undo_btn_wlcm.setEnabled(False)
-                        self.redo_btn_wlcm.setEnabled(True)
-                    elif self.undoredoState==1:
-                        self.undo_btn_wlcm.setEnabled(True)
-                        self.redo_btn_wlcm.setEnabled(True)
-                    elif self.undoredoState>=2:
-                        self.undo_btn_wlcm.setEnabled(True)
-                        self.redo_btn_wlcm.setEnabled(False)
-                else:
-                    if self.undoredoState<=0:
-                        self.undo_btn_wlcm.setEnabled(False)
-                        self.redo_btn_wlcm.setEnabled(True)
-                    elif self.undoredoState>=1:
-                        self.undo_btn_wlcm.setEnabled(True)
-                        self.redo_btn_wlcm.setEnabled(False)
+                self.trackChanges()
 
         else:
             self.label_tbl.setText(f"QR Code: Not detected "+'❌')
+        self.recordChanges = True
 
     # def changeLogged(self, r, c):
     #     print("Cell {} at row {} and column {} was changed.".format(
     #         self.tableWidget.item(r, c).text(), r, c))
 
     def deleteSelRows(self):
+        self.recordChanges = False
         global row, qrcode_list
         selectedRows = self.tableWidget.selectionModel().selectedRows()
         if selectedRows:
@@ -262,40 +227,14 @@ class welcome(QMainWindow):
             self.tableWidget.resizeColumnsToContents()
             self.label_tbl.setText(f"Table: Selected rows deleted "+'✔')
             
-            self.undoredoState = self.currentState
-            if self.currentState > 2:
-                self.currentState = 2
-                self.dataMemoryList[0] = self.dataMemoryList[1]
-                self.dataMemoryList[1] = self.dataMemoryList[2]
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-            else:
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-                self.currentState = self.currentState + 1
-            
-            print(self.dataMemoryList,'\n')
-
-            if len(self.dataMemoryList) == 3:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState==1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=2:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
-            else:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
+            self.trackChanges()
             
         else:
             self.label_tbl.setText(f"Table: No row selected to delete "+'❌')
+        self.recordChanges = True
     
     def deleteSelCols(self):
+        self.recordChanges = False
         selectedCols = self.tableWidget.selectionModel().selectedColumns()
         if selectedCols:
             while self.tableWidget.selectionModel().selectedColumns():
@@ -309,40 +248,14 @@ class welcome(QMainWindow):
             self.tableWidget.resizeColumnsToContents()
             self.label_tbl.setText(f"Table: Selected columns deleted "+'✔')
             
-            self.undoredoState = self.currentState
-            if self.currentState > 2:
-                self.currentState = 2
-                self.dataMemoryList[0] = self.dataMemoryList[1]
-                self.dataMemoryList[1] = self.dataMemoryList[2]
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-            else:
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-                self.currentState = self.currentState + 1
-            
-            print(self.dataMemoryList,'\n')
-
-            if len(self.dataMemoryList) == 3:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState==1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=2:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
-            else:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
+            self.trackChanges()
 
         else:
             self.label_tbl.setText(f"Table: No column selected to delete "+'❌')
+        self.recordChanges = True
     
     def addRow(self):
+        self.recordChanges = False
         global row
         output_Item = QTableWidgetItem(str(nan))
         rowPosition = self.tableWidget.rowCount()
@@ -353,39 +266,13 @@ class welcome(QMainWindow):
         row = row + 1
         self.tableWidget.resizeColumnsToContents()
         
-        self.undoredoState = self.currentState
-        if self.currentState > 2:
-            self.currentState = 2
-            self.dataMemoryList[0] = self.dataMemoryList[1]
-            self.dataMemoryList[1] = self.dataMemoryList[2]
-            self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-        else:
-            self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-            self.currentState = self.currentState + 1
-        
-        print(self.dataMemoryList,'\n')
-
-        if len(self.dataMemoryList) == 3:
-            if self.undoredoState<=0:
-                self.undo_btn_wlcm.setEnabled(False)
-                self.redo_btn_wlcm.setEnabled(True)
-            elif self.undoredoState==1:
-                self.undo_btn_wlcm.setEnabled(True)
-                self.redo_btn_wlcm.setEnabled(True)
-            elif self.undoredoState>=2:
-                self.undo_btn_wlcm.setEnabled(True)
-                self.redo_btn_wlcm.setEnabled(False)
-        else:
-            if self.undoredoState<=0:
-                self.undo_btn_wlcm.setEnabled(False)
-                self.redo_btn_wlcm.setEnabled(True)
-            elif self.undoredoState>=1:
-                self.undo_btn_wlcm.setEnabled(True)
-                self.redo_btn_wlcm.setEnabled(False)
+        self.trackChanges()
         
         self.label_tbl.setText(f"Table: New row added "+'✔')
+        self.recordChanges = True
 
     def addCol(self):
+        self.recordChanges = False
         newColName, ok = QInputDialog.getText(self, 'Add new column', 'Column Name:')
         if ok:
             colPosition = self.tableWidget.columnCount()
@@ -398,37 +285,10 @@ class welcome(QMainWindow):
             colsNames.append(newColName)
             self.tableWidget.resizeColumnsToContents()
             
-            self.undoredoState = self.currentState
-            if self.currentState > 2:
-                self.currentState = 2
-                self.dataMemoryList[0] = self.dataMemoryList[1]
-                self.dataMemoryList[1] = self.dataMemoryList[2]
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-            else:
-                self.dataMemoryList[self.currentState] = self.getCurrentTableData()
-                self.currentState = self.currentState + 1
-            
-            print(self.dataMemoryList,'\n')
-
-            if len(self.dataMemoryList) == 3:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState==1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=2:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
-            else:
-                if self.undoredoState<=0:
-                    self.undo_btn_wlcm.setEnabled(False)
-                    self.redo_btn_wlcm.setEnabled(True)
-                elif self.undoredoState>=1:
-                    self.undo_btn_wlcm.setEnabled(True)
-                    self.redo_btn_wlcm.setEnabled(False)
+            self.trackChanges()
             
             self.label_tbl.setText(f"Table: New columns `{newColName}` added "+'✔')
+        self.recordChanges = True
     
     def getCurrentTableData(self):
         try:
@@ -462,9 +322,9 @@ class welcome(QMainWindow):
                     df = df.sort_values(by = ord_decodedQRCode[1:])
                 except: pass
                 with ExcelWriter(fileName) as writer:
-                    df.to_excel(writer, index=False, sheet_name='Records')
+                    df.to_excel(writer, index=False, sheet_name=dataSheet)
                     try: df_decode.reset_index().to_excel(
-                            writer, index=False, sheet_name='DecodeQR')
+                            writer, index=False, sheet_name=decodeSheet)
                     except: pass
                 self.label_tbl.setText(f"Export: Success {Path(fileName).name} "+'✔')
             else:
@@ -473,6 +333,7 @@ class welcome(QMainWindow):
             self.label_tbl.setText(f"Export: Failed [Data not found] "+'❌')
         
     def undo(self):
+        self.recordChanges = False
         self.undoredoState = self.undoredoState - 1
         if len(self.dataMemoryList) == 3:
             if self.undoredoState<=0:
@@ -492,11 +353,13 @@ class welcome(QMainWindow):
                 self.undo_btn_wlcm.setEnabled(True)
                 self.redo_btn_wlcm.setEnabled(False)
         if self.undoredoState >= 0:
-            print('Undo to')
+            print('\nUndo to')
             self.loadCurrentData()
         print(self.undoredoState, self.currentState)
+        self.recordChanges = True
     
     def redo(self):
+        self.recordChanges = False
         self.undoredoState = self.undoredoState + 1
         if len(self.dataMemoryList) == 3:
             if self.undoredoState<=0:
@@ -516,18 +379,20 @@ class welcome(QMainWindow):
                 self.undo_btn_wlcm.setEnabled(True)
                 self.redo_btn_wlcm.setEnabled(False)
         if self.undoredoState <= 2:
-            print('Redo to')
+            print('\nRedo to')
             self.loadCurrentData()
         print(self.undoredoState, self.currentState)
+        self.recordChanges = True
     
     def loadCurrentData(self):
+        self.recordChanges = False
         while self.tableWidget.rowCount() > 0:
             for i in range(self.tableWidget.rowCount()):
                 self.tableWidget.removeRow(i)
         self.tableWidget.clear()
         global df_decode
         df, df_decode = self.dataMemoryList[self.undoredoState]
-        print(df, df_decode)
+        print(df)
         if df is not None:
             colsNames = df.columns.to_list()
             self.tableWidget.setColumnCount(len(colsNames))
@@ -566,6 +431,44 @@ class welcome(QMainWindow):
             self.addrow_btn_wlcm.setEnabled(False)
             self.addcol_btn_wlcm.setEnabled(False)
             self.export_btn_wlcm.setEnabled(False)
+        self.recordChanges = True
+    
+    def changeLogged(self, r, c):
+        if self.recordChanges:
+            self.trackChanges()
+    
+    def trackChanges(self):
+        self.undoredoState = self.currentState
+        if self.currentState >= 2:
+            self.currentState = 2
+            self.dataMemoryList[0] = self.dataMemoryList[1]
+            self.dataMemoryList[1] = self.dataMemoryList[2]
+            self.dataMemoryList[self.currentState] = self.getCurrentTableData()
+        else:
+            self.dataMemoryList[self.currentState] = self.getCurrentTableData()
+            self.currentState = self.currentState + 1
+        
+        print('\nNext State')
+        for k, v in self.dataMemoryList.items():
+            print(k, v[0])
+
+        if len(self.dataMemoryList) == 3:
+            if self.undoredoState<=0:
+                self.undo_btn_wlcm.setEnabled(False)
+                self.redo_btn_wlcm.setEnabled(True)
+            elif self.undoredoState==1:
+                self.undo_btn_wlcm.setEnabled(True)
+                self.redo_btn_wlcm.setEnabled(True)
+            elif self.undoredoState>=2:
+                self.undo_btn_wlcm.setEnabled(True)
+                self.redo_btn_wlcm.setEnabled(False)
+        else:
+            if self.undoredoState<=0:
+                self.undo_btn_wlcm.setEnabled(False)
+                self.redo_btn_wlcm.setEnabled(True)
+            elif self.undoredoState>=1:
+                self.undo_btn_wlcm.setEnabled(True)
+                self.redo_btn_wlcm.setEnabled(False)
 
 '################################ QApplication ################################'
 
