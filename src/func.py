@@ -1,7 +1,7 @@
 import time
 from typing import Union
 
-from cv2 import VideoCapture, destroyAllWindows, imshow
+from cv2 import VideoCapture, destroyAllWindows, imshow, waitKey
 from pandas import DataFrame, concat
 from pyzbar.pyzbar import decode
 
@@ -20,6 +20,7 @@ def scan_qr_code():
 
         # Display the frame
         imshow('QR Code Scanner', frame)
+        waitKey(1)
 
         # Check for QR codes
         if decoded_objects is not None:
@@ -36,6 +37,10 @@ def scan_qr_code():
     # Release the camera and close the window
     cap.release()
     destroyAllWindows()
+
+def isQRCode(qrCode):
+        return len(qrCode) >= 10 and qrCode.isalnum()
+
 
 def isfloat(value: Union[float, str, int]) -> bool:
     '''

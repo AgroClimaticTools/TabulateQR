@@ -2,17 +2,18 @@ import os
 import sys
 import winsound
 from pathlib import Path
+from time import sleep
 
 from numpy import nan
 from pandas import DataFrame, ExcelFile, ExcelWriter, read_excel
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtWidgets import (QAbstractItemView, QApplication, QDialog,
                              QFileDialog, QInputDialog, QMainWindow,
-                             QMessageBox, QSplashScreen, QStackedWidget,
+                             QMessageBox, QShortcut, QSplashScreen,
                              QTableWidgetItem)
 from PyQt5.uic import loadUi
 
-from func import convert2StrIntFloat, decodeQRCode, scan_qr_code
+from func import convert2StrIntFloat, decodeQRCode, isQRCode, scan_qr_code
 
 
 def resource_path(relative_path):
@@ -36,7 +37,10 @@ class InputSheetsDialog(QDialog):
         self.datasheet_dropdown_1.addItems(['None']+sheets)
         self.decodesheet_dropdown_1.addItems(['None']+sheets)
         self.datasheet_dropdown_1.setCurrentText(sheets[0])
-        self.decodesheet_dropdown_1.setCurrentText(sheets[-1])
+        if len(sheets)==1:
+            self.decodesheet_dropdown_1.setCurrentText('None')
+        else:
+            self.decodesheet_dropdown_1.setCurrentText(sheets[-1])
 
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
@@ -54,8 +58,13 @@ class welcome(QMainWindow):
         self.setWindowTitle("TabulateQR")
         self.setWindowState(QtCore.Qt.WindowMaximized)
 
+        self.verticalHeader = self.tableWidget.verticalHeader()
+        self.verticalHeader.setMaximumSectionSize(35)
+        self.tableWidget.setFocusPolicy(QtCore.Qt.NoFocus)
+
+        self.qrCode_data = []
         self.dataMemoryList = {0:(None,None)}
-        self.currentState = 1
+        self.currentState = 0
         self.undoredoState = self.currentState
         self.recordChanges = True
 
@@ -70,6 +79,7 @@ class welcome(QMainWindow):
         self.undo_btn_wlcm.clicked.connect(self.undo)
         self.redo_btn_wlcm.clicked.connect(self.redo)
         self.tableWidget.cellChanged.connect(self.changeLogged)
+        self.useBarcodeScanner_checkBox.toggled.connect(self.toggleScan)
 
         self.clear_btn_wlcm.setEnabled(False)
         self.scan_btn_wlcm.setEnabled(False)
@@ -80,11 +90,33 @@ class welcome(QMainWindow):
         self.export_btn_wlcm.setEnabled(False)
         self.undo_btn_wlcm.setEnabled(False)
         self.redo_btn_wlcm.setEnabled(False)
+        
+        self.ctrl_O = QShortcut(QtGui.QKeySequence("Ctrl+O"), self)
+        self.esc    = QShortcut(QtGui.QKeySequence("Esc"), self)
+        self.ctrl_Q = QShortcut(QtGui.QKeySequence("Ctrl+Q"), self)
+        self.ctrl_S = QShortcut(QtGui.QKeySequence("Ctrl+S"), self)
+        self.ctrl_Z = QShortcut(QtGui.QKeySequence("Ctrl+Z"), self)
+        self.ctrl_Y = QShortcut(QtGui.QKeySequence("Ctrl+Y"), self)
+        
+        self.ctrl_O.activated.connect(self.loadTable)
+        self.esc.activated.connect(self.clearTable)
+        self.ctrl_Q.activated.connect(self.getQRCode)
+        self.ctrl_S.activated.connect(self.export2excel)
+        self.ctrl_Z.activated.connect(self.undo)
+        self.ctrl_Y.activated.connect(self.redo)
+        
+        self.ctrl_O.setEnabled(True)
+        self.esc.setEnabled(False)
+        self.ctrl_Q.setEnabled(False)
+        self.ctrl_S.setEnabled(False)
+        self.ctrl_Z.setEnabled(False)
+        self.ctrl_Y.setEnabled(False)
 
         self.label_tbl.setText('Press `Load Excel` button to load the Excel.')
         
 
     def loadTable(self):
+        self.clearTable()
         self.recordChanges = False
         global excelFile
         excelFile, _ = QFileDialog.getOpenFileName(
@@ -111,9 +143,6 @@ class welcome(QMainWindow):
 
                 self.tableWidget.setColumnCount(len(colsNames))
                 self.tableWidget.setHorizontalHeaderLabels(colsNames)
-
-                global qrcode_list 
-                qrcode_list = list(set(df['QR Code'].astype(str).to_list()))
                 
                 global row
                 row=0
@@ -137,6 +166,8 @@ class welcome(QMainWindow):
                 self.addcol_btn_wlcm.setEnabled(True)
                 self.export_btn_wlcm.setEnabled(True)
 
+                self.tableWidget.setCurrentItem(None)
+                
                 self.trackChanges()
 
                 self.label_tbl.setText('Table: Loaded '+'✔')
@@ -144,6 +175,8 @@ class welcome(QMainWindow):
                 self.label_tbl.setText('Table: Data sheet not selected or Selection Aborted [Please try again] '+'❌')
         else:
             self.label_tbl.setText('Table: Loading Failed [Please try again] '+'❌')
+        
+        self.enableShortcuts()
         self.recordChanges = True
     
     def clearTable(self):
@@ -151,6 +184,9 @@ class welcome(QMainWindow):
         while self.tableWidget.rowCount() > 0:
             for i in range(self.tableWidget.rowCount()):
                 self.tableWidget.removeRow(i)
+        while self.tableWidget.columnCount() > 0:
+            for i in range(self.tableWidget.columnCount()):
+                self.tableWidget.removeColumn(i)
         self.tableWidget.clear()
         self.load_btn_wlcm.setEnabled(True)
         self.clear_btn_wlcm.setEnabled(False)
@@ -164,11 +200,10 @@ class welcome(QMainWindow):
         self.trackChanges()
 
         self.label_tbl.setText('Press `Load Excel` button to reload the Excel.')
+        self.enableShortcuts()
         self.recordChanges = True
 
     def getQRCode(self):
-        self.recordChanges = False
-        global row, qrcode_list
         qrcode = None
         try:
             qrcode = scan_qr_code()
@@ -176,24 +211,44 @@ class welcome(QMainWindow):
             qrcode = None
             warnMsg = QMessageBox()
             warnMsg.setIcon(QMessageBox.Critical)
-            warnMsg.setText("No Camera Detected")
-            warnMsg.setWindowTitle("Critical Warning")
+            warnMsg.setText("No camera found.\nPlease use a barcode scanner for scanning and don't forget to check `Use Barcode Scanner`.")
+            warnMsg.setWindowTitle("Warning")
             warnMsg.setStandardButtons(QMessageBox.Ok)
             warnMsg.exec_()
+        
+        self.writeQRCode(qrcode)
+    
+    def keyPressEvent(self, event):
+        if self.useBarcodeScanner_checkBox.isChecked():
+            print(event.text())
+            if event.text() != '\r':
+                self.qrCode_data.append(event.text())
+            else:
+                qrcode = ''.join([b for b in self.qrCode_data])
+                if isQRCode(qrcode):
+                    self.qrCode_data = []
+                    self.writeQRCode(qrcode)
+
+
+    def writeQRCode(self, qrcode):
+        self.recordChanges = False
+        global row
+        
         if qrcode is not None:
-            if qrcode in qrcode_list:
-                self.tableWidget.setCurrentItem(None)
-                matching_items = self.tableWidget.findItems(
-                    str(qrcode), QtCore.Qt.MatchContains)
-                if matching_items:
-                    item = matching_items[0]  # Take the first.
-                    self.tableWidget.setCurrentItem(item)
-                    self.tableWidget.scrollToItem(
-                        item,QAbstractItemView.ScrollHint.EnsureVisible)
+            self.tableWidget.clearSelection()
+            self.tableWidget.setCurrentItem(None)
+            matching_items = self.tableWidget.findItems(
+                str(qrcode), QtCore.Qt.MatchContains)
+            if matching_items:
+                winsound.Beep(1000, 250)
+                item = matching_items[0]  # select first item
+                # self.tableWidget.setCurrentItem(item)
+                self.tableWidget.selectRow(item.row())
+                self.tableWidget.scrollToItem(
+                    item,QAbstractItemView.ScrollHint.EnsureVisible)
                 self.label_tbl.setText(f'QR Code: {qrcode} already exists '+'🔁')
             else:
-                qrcode_list.append(qrcode)
-                winsound.Beep(1000, 500)
+                winsound.Beep(500, 250)
                 output_Item = QTableWidgetItem(str(qrcode))
                 rowPosition = self.tableWidget.rowCount()
                 self.tableWidget.insertRow(rowPosition)
@@ -202,26 +257,20 @@ class welcome(QMainWindow):
                     output_Item,QAbstractItemView.ScrollHint.EnsureVisible)
                 row = row + 1
                 self.label_tbl.setText(f'QR Code: {qrcode} scanned '+'✔')
-                
                 self.trackChanges()
-
         else:
             self.label_tbl.setText(f"QR Code: Not detected "+'❌')
-        self.recordChanges = True
-
-    # def changeLogged(self, r, c):
-    #     print("Cell {} at row {} and column {} was changed.".format(
-    #         self.tableWidget.item(r, c).text(), r, c))
+        self.enableShortcuts()
+        self.recordChanges = True    
 
     def deleteSelRows(self):
         self.recordChanges = False
-        global row, qrcode_list
+        global row
         selectedRows = self.tableWidget.selectionModel().selectedRows()
         if selectedRows:
             row = row - len(selectedRows)
             while self.tableWidget.selectionModel().selectedRows():
                 selectedRows = self.tableWidget.selectionModel().selectedRows()
-                # self.tableWidget.removeRow(self.tableWidget.currentRow())
                 for selrow in selectedRows:
                     self.tableWidget.removeRow(selrow.row())
             self.tableWidget.resizeColumnsToContents()
@@ -231,6 +280,7 @@ class welcome(QMainWindow):
             
         else:
             self.label_tbl.setText(f"Table: No row selected to delete "+'❌')
+        self.enableShortcuts()
         self.recordChanges = True
     
     def deleteSelCols(self):
@@ -239,11 +289,7 @@ class welcome(QMainWindow):
         if selectedCols:
             while self.tableWidget.selectionModel().selectedColumns():
                 selectedCols = self.tableWidget.selectionModel().selectedColumns()
-                # self.tableWidget.removeRow(self.tableWidget.currentRow())
                 for selcol in selectedCols:
-                    # selectedQRCode = self.tableWidget.item(selrow.row(), 0).text()
-                    # if selectedQRCode in qrcode_list:
-                    #     qrcode_list.remove(selectedQRCode)
                     self.tableWidget.removeColumn(selcol.column())
             self.tableWidget.resizeColumnsToContents()
             self.label_tbl.setText(f"Table: Selected columns deleted "+'✔')
@@ -252,6 +298,7 @@ class welcome(QMainWindow):
 
         else:
             self.label_tbl.setText(f"Table: No column selected to delete "+'❌')
+        self.enableShortcuts()
         self.recordChanges = True
     
     def addRow(self):
@@ -269,6 +316,7 @@ class welcome(QMainWindow):
         self.trackChanges()
         
         self.label_tbl.setText(f"Table: New row added "+'✔')
+        self.enableShortcuts()
         self.recordChanges = True
 
     def addCol(self):
@@ -288,6 +336,7 @@ class welcome(QMainWindow):
             self.trackChanges()
             
             self.label_tbl.setText(f"Table: New columns `{newColName}` added "+'✔')
+        self.enableShortcuts()
         self.recordChanges = True
     
     def getCurrentTableData(self):
@@ -331,6 +380,7 @@ class welcome(QMainWindow):
                 self.label_tbl.setText(f"Export: Failed [Please provide a file name] "+'❌')
         else:
             self.label_tbl.setText(f"Export: Failed [Data not found] "+'❌')
+        self.enableShortcuts()
         
     def undo(self):
         self.recordChanges = False
@@ -356,6 +406,8 @@ class welcome(QMainWindow):
             print('\nUndo to')
             self.loadCurrentData()
         print(self.undoredoState, self.currentState)
+        self.tableWidget.setCurrentItem(None)
+        self.enableShortcuts()
         self.recordChanges = True
     
     def redo(self):
@@ -382,6 +434,8 @@ class welcome(QMainWindow):
             print('\nRedo to')
             self.loadCurrentData()
         print(self.undoredoState, self.currentState)
+        self.tableWidget.setCurrentItem(None)
+        self.enableShortcuts()
         self.recordChanges = True
     
     def loadCurrentData(self):
@@ -389,6 +443,9 @@ class welcome(QMainWindow):
         while self.tableWidget.rowCount() > 0:
             for i in range(self.tableWidget.rowCount()):
                 self.tableWidget.removeRow(i)
+        while self.tableWidget.columnCount() > 0:
+            for i in range(self.tableWidget.columnCount()):
+                self.tableWidget.removeColumn(i)
         self.tableWidget.clear()
         global df_decode
         df, df_decode = self.dataMemoryList[self.undoredoState]
@@ -397,9 +454,6 @@ class welcome(QMainWindow):
             colsNames = df.columns.to_list()
             self.tableWidget.setColumnCount(len(colsNames))
             self.tableWidget.setHorizontalHeaderLabels(colsNames)
-
-            global qrcode_list
-            qrcode_list = list(set(df['QR Code'].astype(str).to_list()))
             
             global row
             row=0
@@ -431,16 +485,20 @@ class welcome(QMainWindow):
             self.addrow_btn_wlcm.setEnabled(False)
             self.addcol_btn_wlcm.setEnabled(False)
             self.export_btn_wlcm.setEnabled(False)
+        self.enableShortcuts()
         self.recordChanges = True
     
     def changeLogged(self, r, c):
+        # print("Cell {} at row {} and column {} was changed.".format(
+        #     self.tableWidget.item(r, c).text(), r, c))
         if self.recordChanges:
             self.trackChanges()
     
     def trackChanges(self):
         self.undoredoState = self.currentState
-        if self.currentState >= 2:
+        if self.currentState > 2:
             self.currentState = 2
+            self.undoredoState = 2
             self.dataMemoryList[0] = self.dataMemoryList[1]
             self.dataMemoryList[1] = self.dataMemoryList[2]
             self.dataMemoryList[self.currentState] = self.getCurrentTableData()
@@ -469,6 +527,40 @@ class welcome(QMainWindow):
             elif self.undoredoState>=1:
                 self.undo_btn_wlcm.setEnabled(True)
                 self.redo_btn_wlcm.setEnabled(False)
+    
+    def toggleScan(self):
+        if self.useBarcodeScanner_checkBox.isChecked():
+            self.scan_btn_wlcm.setEnabled(False)
+            self.ctrl_Q.setEnabled(False)
+        else:
+            self.scan_btn_wlcm.setEnabled(True)
+            self.ctrl_Q.setEnabled(True)
+
+    def enableShortcuts(self):
+        if self.load_btn_wlcm.isEnabled():
+            self.ctrl_O.setEnabled(True)
+            self.esc.setEnabled(False)
+            self.ctrl_S.setEnabled(False)
+            self.ctrl_Q.setEnabled(False)
+        else:
+            self.ctrl_O.setEnabled(False)
+            self.esc.setEnabled(True)
+            self.ctrl_Q.setEnabled(True)
+            self.ctrl_S.setEnabled(True)
+            if self.useBarcodeScanner_checkBox.isChecked():
+                self.scan_btn_wlcm.setEnabled(False)
+                self.ctrl_Q.setEnabled(False)
+            else:
+                self.scan_btn_wlcm.setEnabled(True)
+                self.ctrl_Q.setEnabled(True)
+        if self.undo_btn_wlcm.isEnabled():
+            self.ctrl_Z.setEnabled(True)
+        else:
+            self.ctrl_Z.setEnabled(False)
+        if self.redo_btn_wlcm.isEnabled():
+            self.ctrl_Y.setEnabled(True)
+        else:
+            self.ctrl_Y.setEnabled(False)
 
 '################################ QApplication ################################'
 
@@ -481,7 +573,18 @@ if __name__ == '__main__':
     app_icon.addFile(resource_path('./qtui/icon.ico'))
     app.setWindowIcon(app_icon)
     
+    splash = QSplashScreen(
+        QtGui.QPixmap(resource_path("./qtui/SplashScreen_640px.png"))
+        # .scaled(
+        #     640,576,QtCore.Qt.KeepAspectRatio,
+        #     QtCore.Qt.SmoothTransformation),
+        # QtCore.Qt.WindowStaysOnTopHint
+        )
     mainwindow=welcome()
+    splash.show()
+    app.processEvents()
+    sleep(2)
     mainwindow.resize(720, 480)
     mainwindow.show()
+    splash.finish(mainwindow)
     app.exec_()
