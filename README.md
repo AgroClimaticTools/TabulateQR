@@ -1,5 +1,5 @@
 
-# TabulateQR
+# <img src="./src/icons/icon.ico" alt="TabulateQR Tool Icon" width="32"/> TabulateQR
 
 TabulateQR is a simple tool to create customized tables for organizing sample data linked with QR codes. 
 It allows a webcam (for laptops) or a barcode scanner (for PCs without a webcam) to scan the QR Codes.
