@@ -2,6 +2,7 @@
 # TabulateQR
 
 TabulateQR is a simple tool to create customized tables for organizing sample data linked with QR codes. 
+It allows a webcam (laptop) or a barcode scanner (for PCs without a webcam) to scan the QR Code. 
 
 It facilitates the loading of Excel data in a particular sheet, with the first column designated `QR Code`.
 | QR Code                  | Col1  | Col2  |
@@ -27,4 +28,4 @@ Now, the QR Code is decoded upon exporting the table to Excel, the exported Exce
 |--------------------------|-------|-----|------|---------------|-------|------|-------|-------|
 | Id1401B102P3S11D30Y2024  | 1401  | 102 | 3    | 11            | 30    | 2024 | data1 | data2 |
 
-The tool allows the user to select the data sheet and QR code decoding sheet when loading an Excel file.
+The tool allows users to select the data sheet and QR code decoding sheet when loading an Excel file.
