@@ -1,6 +1,7 @@
 import os
 import sys
 import winsound
+from datetime import datetime
 from pathlib import Path
 from time import sleep
 
@@ -141,8 +142,8 @@ class welcome(QMainWindow):
                 except: df_decode = None
                 colsNames = df.columns.to_list()
 
-                self.tableWidget.setColumnCount(len(colsNames))
-                self.tableWidget.setHorizontalHeaderLabels(colsNames)
+                self.tableWidget.setColumnCount(len(colsNames)+1)
+                self.tableWidget.setHorizontalHeaderLabels(['Timestamp']+colsNames)
                 
                 global row
                 row=0
@@ -154,7 +155,7 @@ class welcome(QMainWindow):
                         output_Item = QTableWidgetItem(str(data))
                         if col != 0:
                             output_Item.setTextAlignment(QtCore.Qt.AlignCenter)
-                        self.tableWidget.setItem(row, col, output_Item)
+                        self.tableWidget.setItem(row, col+1, output_Item)
                     row = row + 1
                 self.tableWidget.resizeColumnsToContents()
                 self.load_btn_wlcm.setEnabled(False)
@@ -249,10 +250,12 @@ class welcome(QMainWindow):
                 self.label_tbl.setText(f'QR Code: {qrcode} already exists '+'🔁')
             else:
                 winsound.Beep(500, 250)
+                timeStamp_Item = QTableWidgetItem(f'{datetime.now()}')
                 output_Item = QTableWidgetItem(str(qrcode))
                 rowPosition = self.tableWidget.rowCount()
                 self.tableWidget.insertRow(rowPosition)
-                self.tableWidget.setItem(row, 0, output_Item)
+                self.tableWidget.setItem(row, 0, timeStamp_Item)
+                self.tableWidget.setItem(row, 1, output_Item)
                 self.tableWidget.scrollToItem(
                     output_Item,QAbstractItemView.ScrollHint.EnsureVisible)
                 row = row + 1
